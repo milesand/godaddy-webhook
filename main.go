@@ -14,7 +14,7 @@ import (
 
 	apiext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-    "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
 	"github.com/jetstack/cert-manager/pkg/acme/webhook/apis/acme/v1alpha1"
@@ -80,7 +80,8 @@ type godaddyDNSProviderConfig struct {
 	// These fields will be set by users in the
 	// `issuer.spec.acme.dns01.providers.webhook.config` field.
 
-	APIKeySecretRef certmgrv1.SecretKeySelector `json:"apiKeySecretRef"`
+	APIKeyRef certmgrv1.SecretKeySelector `json:"apiKeyRef"`
+	APISecretRef certmgrv1.SecretKeySelector `json:"apiSecretRef"`
 
 	AuthAPIKey    string `json:"authApiKey"`
 	AuthAPISecret string `json:"authApiSecret"`
@@ -100,7 +101,7 @@ type godaddyDNSProviderConfig struct {
 
 func (c *godaddyDNSSolver) validate(cfg *godaddyDNSProviderConfig) error {
 	// Try to load the API key
-	if cfg.APIKeySecretRef.LocalObjectReference.Name == "" {
+	if cfg.APIKeyRef.LocalObjectReference.Name == "" || cfg.APISecretRef.LocalObjectReference.Name == "" {
 		return errors.New("API token field were not provided as no Kubernetes Secret exists !")
 	}
 	return nil
@@ -129,24 +130,39 @@ func (c *godaddyDNSSolver) apiURL(cfg godaddyDNSProviderConfig) string {
 }
 
 func (c *godaddyDNSSolver) extractApiTokenFromSecret(cfg *godaddyDNSProviderConfig, ch *v1alpha1.ChallengeRequest) error {
-	sec, err := c.client.CoreV1().
+	keySec, err := c.client.CoreV1().
 		Secrets(ch.ResourceNamespace).
-		Get(cfg.APIKeySecretRef.LocalObjectReference.Name, metaV1.GetOptions{})
+		Get(cfg.APIKeyRef.LocalObjectReference.Name, metaV1.GetOptions{})
 	if err != nil {
 		return err
 	}
 
-	secBytes, ok := sec.Data[cfg.APIKeySecretRef.Key]
+	keySecBytes, ok := keySec.Data[cfg.APIKeyRef.Key]
 	if !ok {
 		return fmt.Errorf("Key %q not found in secret \"%s/%s\"",
-			cfg.APIKeySecretRef.Key,
-			cfg.APIKeySecretRef.LocalObjectReference.Name,
+			cfg.APIKeyRef.Key,
+			cfg.APIKeyRef.LocalObjectReference.Name,
 			ch.ResourceNamespace)
 	}
 
-	token := strings.Split(string(secBytes), ":")
-	cfg.AuthAPIKey = token[0]
-	cfg.AuthAPISecret = token[1]
+	cfg.AuthAPIKey = string(keySecBytes)
+
+	secSec, err := c.client.CoreV1().
+		Secrets(ch.ResourceNamespace).
+		Get(cfg.APISecretRef.LocalObjectReference.Name, metaV1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	secSecBytes, ok := secSec.Data[cfg.APISecretRef.Key]
+	if !ok {
+		return fmt.Errorf("Key %q not found in secret \"%s/%s\"",
+			cfg.APISecretRef.Key,
+			cfg.APISecretRef.LocalObjectReference.Name,
+			ch.ResourceNamespace)
+	}
+
+	cfg.AuthAPISecret = string(secSecBytes)
 
 	return nil
 }
