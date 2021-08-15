@@ -8,21 +8,20 @@ Follow the [instructions](https://cert-manager.io/docs/installation/) using the 
 On kubernetes, the process is pretty straightforward if you use the following commands:
 ```bash
 kubectl create namespace cert-manager
-kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v0.12.0/cert-manager.yaml
+kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/latest/download/cert-manager.yaml
 ```
 
 ### The Webhook
 
-- Initialize first helm to install `Tiller` if not yet done and next install the helm chart
+- To install the webhook:
 ```bash
-$ helm init
 $ helm install --name godaddy-webhook --namespace cert-manager ./deploy/godaddy-webhook
 ```
 **NOTE** : The kubernetes resources used to install the Webhook should be deployed within the same namespace as the cert-manager.
 
 - To uninstall the webhook:
 ```bash
-$ helm delete godaddy-webhook --purge
+$ helm uninstall godaddy-webhook
 ```
 
 - Alternatively, you can install the webhook using the list of the kubernetes resources. The namespace
@@ -34,13 +33,13 @@ $ helm delete godaddy-webhook --purge
 ## Issuer
 
 In order to communicate with Godaddy DNS provider, we will create a Kubernetes Secret
-to store the Godaddy `API` and `GoDaddy Secret`. 
+to store the Godaddy API Key and GoDaddy Secret. 
 Next, we will define a `ClusterIssuer` containing the information to access the ACME Letsencrypt Server
 and the DNS provider to be used
 
 ### Secret
 
-- Create a `Secret` containing as key parameter the concatenation of the Godaddy Api and Secret separated by ":"
+- Create a `Secret` containing Godaddy API Key and Godaddy Secret:
 ```yaml
 cat <<EOF > secret.yml
 apiVersion: v1
@@ -49,7 +48,8 @@ metadata:
   name: gadaddy-api-key
 type: Opaque
 stringData:
-  key: <GODADDY_API:GODADDY_SECRET>
+  key: <GODADDY_API>
+  secret: <GODADDY_SECRET>
 EOF
 ```
 - Next, deploy it under the namespace where you would like to get your certificate/key signed by the ACME CA Authority
@@ -65,7 +65,7 @@ kubectl appy -f secret.yml -n <NAMESPACE>
 
 ```yaml
 cat <<EOF > clusterissuer.yml 
-EOF apiVersion: cert-manager.io/v1alpha2
+EOF apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt-prod
@@ -86,9 +86,12 @@ spec:
       dns01:
         webhook:
           config:
-            apiKeySecretRef:
+            apiKeyRef:
               name: godaddy-api-key
-              key: token
+              key: key
+            apiSecretRef:
+              name: godaddy-api-key
+              key: secret
             production: true
             ttl: 600
           groupName: acme.mycompany.com
@@ -103,7 +106,7 @@ kubectl apply -f clusterissuer.yml
 
 ```yaml
 cat <<EOF > certificate.yml
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: wildcard-example-com
@@ -192,8 +195,4 @@ own options in order for tests to pass.
 - Next, build the container image using the Dockerfile included within this project
 ```bash
 docker build -t quay.io/snowdrop/cert-manager-webhook-godaddy .
-```
-- Tag and push it
-```bash
-
 ```
